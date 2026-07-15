@@ -1,4 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAE9z3OUDxzSlVu4n_HEsNa6fnMJ7qH1Sw",
+  authDomain: "studio-flow-522ad.firebaseapp.com",
+  projectId: "studio-flow-522ad",
+  storageBucket: "studio-flow-522ad.firebasestorage.app",
+  messagingSenderId: "927015217793",
+  appId: "1:927015217793:web:7cf9af75e43656f65e7b80"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 const FLUXO_DE_STATUS = [
   { chave: "liderar", rotulo: "Liderar", cor: "#6B7FD7", bg: "#EEF0FD", icone: "+" },
@@ -13,15 +27,6 @@ const FLUXO_DE_STATUS = [
 
 const EQUIPE_PADRAO = ["Ana", "Bruno", "Carla", "Diego", "Elas"];
 const DEFAULT_PRAZO = 3;
-
-const clientes_iniciais = [
-  { id: 1, nome: "Mariana Costa", telefone: "(11) 98765-4321", status: "em_edicao", responsavel: "Ana", criadoEm: "2025-06-10", Data: "2025-06-01", notas: "", editor: "" },
-  { id: 2, nome: "Fernanda Lima", telefone: "(11) 91234-5678", status: "editado", responsavel: "Carla", criadoEm: "2025-06-08", Data: "2025-06-05", notas: "", editor: "", editadoEm: "2025-06-10" },
-  { id: 3, nome: "Rafael Souza", telefone: "(11) 94567-8901", status: "enviado", responsavel: "Ana", criadoEm: "2025-06-05", Data: "2025-06-03", notas: "", editor: "" },
-  { id: 4, nome: "Juliana Pereira", telefone: "(11) 99876-5432", status: "agenda", responsavel: "Bruno", criadoEm: "2025-06-19", Data: "2025-06-25", notas: "", editor: "" },
-  { id: 5, nome: "Carlos Mendes", telefone: "(11) 92345-6789", status: "liderar", responsavel: "Carla", criadoEm: "2025-06-21", Data: null, notas: "", editor: "" },
-  { id: 6, nome: "Beatriz Alves", telefone: "(11) 97654-3210", status: "concluido", responsavel: "Diego", criadoEm: "2025-05-20", Data: "2025-05-15", notas: "", editor: "" },
-];
 
 function diasDiferenca(dataStr) {
   if (!dataStr) return null;
@@ -41,6 +46,7 @@ const estiloEntrada = {
   fontSize: 14,
   outline: "none",
   fontFamily: "inherit",
+  boxSizing: "border-box",
 };
 
 const estiloEtiqueta = {
@@ -50,6 +56,7 @@ const estiloEtiqueta = {
   marginBottom: 4,
   textTransform: "uppercase",
   letterSpacing: 0.5,
+  display: "block",
 };
 
 function CartaoCliente({ cliente, statusInfo, prazo, onEdit, onAdvance }) {
@@ -58,13 +65,7 @@ function CartaoCliente({ cliente, statusInfo, prazo, onEdit, onAdvance }) {
   const atrasado = diasEdicao !== null && diasEdicao >= prazo;
 
   return (
-    <div style={{
-      background: "#fff",
-      borderRadius: 10,
-      padding: "10px 12px",
-      border: atrasado ? "2px solid #E05C5C" : "1.5px solid #E8E7EF",
-      marginBottom: 8,
-    }}>
+    <div style={{ background: "#fff", borderRadius: 10, padding: "10px 12px", border: atrasado ? "2px solid #E05C5C" : "1.5px solid #E8E7EF", marginBottom: 8 }}>
       {atrasado && (
         <div style={{ background: "#E05C5C", color: "#fff", borderRadius: 5, padding: "2px 7px", fontSize: 10, fontWeight: 700, display: "inline-block", marginBottom: 4 }}>
           ⚠ {diasEdicao}d em edição
@@ -81,7 +82,7 @@ function CartaoCliente({ cliente, statusInfo, prazo, onEdit, onAdvance }) {
           Editar
         </button>
         {proximoStatus && (
-          <button onClick={() => onAdvance(cliente.id)} style={{ flex: 2, background: statusInfo.cor, color: "#fff", border: "none", borderRadius: 6, padding: "4px 0", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+          <button onClick={() => onAdvance(cliente)} style={{ flex: 2, background: statusInfo.cor, color: "#fff", border: "none", borderRadius: 6, padding: "4px 0", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
             → {proximoStatus.rotulo}
           </button>
         )}
@@ -91,9 +92,11 @@ function CartaoCliente({ cliente, statusInfo, prazo, onEdit, onAdvance }) {
 }
 
 export default function GerenciadorEstudio() {
-  const [clientes, setClientes] = useState(clientes_iniciais);
+  const [clientes, setClientes] = useState([]);
+  const [carregando, setCarregando] = useState(true);
   const [membros, setMembros] = useState(EQUIPE_PADRAO);
   const [prazoEnvio, setPrazoEnvio] = useState(DEFAULT_PRAZO);
+  const [nomeEstudio, setNomeEstudio] = useState("Meu Estúdio");
   const [visualizar, setVisualizar] = useState("kanban");
   const [filtroStatus, setFiltroStatus] = useState("todos");
   const [filtroResp, setFiltroResp] = useState("todos");
@@ -102,9 +105,18 @@ export default function GerenciadorEstudio() {
   const [procurar, setProcurar] = useState("");
   const [forma, setForma] = useState({ nome: "", telefone: "", status: "liderar", responsavel: "", Data: "", notas: "", editor: "" });
   const [mostrarConfiguracoes, setMostrarConfiguracoes] = useState(false);
-  const [formConfig, setFormConfig] = useState({ nomeEstudio: "Meu Estúdio", prazoEnvio, membros: [...membros] });
+  const [formConfig, setFormConfig] = useState({ nomeEstudio: "Meu Estúdio", prazoEnvio: DEFAULT_PRAZO, membros: [...EQUIPE_PADRAO] });
   const [novoMembro, setNovoMembro] = useState("");
-  const [nomeEstudio, setNomeEstudio] = useState("Meu Estúdio");
+
+  // Carregar clientes do Firebase em tempo real
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "clientes"), (snapshot) => {
+      const dados = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setClientes(dados);
+      setCarregando(false);
+    });
+    return () => unsub();
+  }, []);
 
   const alertas = clientes.filter((c) => c.status === "editado" && c.editadoEm && diasDiferenca(c.editadoEm) >= prazoEnvio);
 
@@ -115,8 +127,7 @@ export default function GerenciadorEstudio() {
   }
 
   function salvarConfiguracoes() {
-    if (!formConfig.nomeEstudio.trim()) return;
-    if (formConfig.prazoEnvio < 1) return;
+    if (!formConfig.nomeEstudio.trim() || formConfig.prazoEnvio < 1) return;
     setNomeEstudio(formConfig.nomeEstudio);
     setPrazoEnvio(Number(formConfig.prazoEnvio));
     setMembros(formConfig.membros.filter((m) => m.trim()));
@@ -146,38 +157,33 @@ export default function GerenciadorEstudio() {
     setMostrarModal(true);
   }
 
-  function salvarCliente() {
+  async function salvarCliente() {
     if (!forma.nome.trim()) return;
+    const agora = new Date().toISOString().split("T")[0];
     if (clienteEdicao) {
-      setClientes((cs) => cs.map((c) => (c.id === clienteEdicao.id ? { ...c, ...forma } : c)));
+      const { id, ...dados } = forma;
+      await updateDoc(doc(db, "clientes", clienteEdicao.id), dados);
     } else {
-      const agora = new Date().toISOString().split("T")[0];
-      setClientes((cs) => [...cs, { ...forma, id: Date.now(), criadoEm: agora, editadoEm: null, enviadoEm: null }]);
+      await addDoc(collection(db, "clientes"), { ...forma, criadoEm: agora, editadoEm: null, enviadoEm: null });
     }
     setMostrarModal(false);
   }
 
-  function avancarStatus(id) {
-    setClientes((cs) =>
-      cs.map((c) => {
-        if (c.id !== id) return c;
-        const idx = FLUXO_DE_STATUS.findIndex((s) => s.chave === c.status);
-        if (idx >= FLUXO_DE_STATUS.length - 1) return c;
-        const proximoStatus = FLUXO_DE_STATUS[idx + 1].chave;
-        const agora = new Date().toISOString().split("T")[0];
-        return {
-          ...c,
-          status: proximoStatus,
-          editadoEm: proximoStatus === "editado" ? agora : c.editadoEm,
-          enviadoEm: proximoStatus === "enviado" ? agora : c.enviadoEm,
-        };
-      })
-    );
+  async function avancarStatus(cliente) {
+    const idx = FLUXO_DE_STATUS.findIndex((s) => s.chave === cliente.status);
+    if (idx >= FLUXO_DE_STATUS.length - 1) return;
+    const proximoStatus = FLUXO_DE_STATUS[idx + 1].chave;
+    const agora = new Date().toISOString().split("T")[0];
+    await updateDoc(doc(db, "clientes", cliente.id), {
+      status: proximoStatus,
+      editadoEm: proximoStatus === "editado" ? agora : cliente.editadoEm || null,
+      enviadoEm: proximoStatus === "enviado" ? agora : cliente.enviadoEm || null,
+    });
   }
 
-  function excluirCliente(id) {
+  async function excluirCliente(id) {
     if (window.confirm("Remover este cliente?")) {
-      setClientes((cs) => cs.filter((c) => c.id !== id));
+      await deleteDoc(doc(db, "clientes", id));
       setMostrarModal(false);
     }
   }
@@ -189,19 +195,28 @@ export default function GerenciadorEstudio() {
     return matchStatus && matchResp && matchSearch;
   });
 
+  if (carregando) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "Inter,sans-serif", color: "#6B7FD7", fontSize: 18 }}>
+        Carregando...
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: "'Inter','Segoe UI',sans-serif", background: "#F7F6F9", minHeight: "100vh", color: "#1A1A2E" }}>
       {/* CABEÇALHO */}
-      <div style={{ background: "#1A1A2E", padding: "18px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ background: "#1A1A2E", padding: "18px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 36, height: 36, background: "linear-gradient(135deg,#6B7FD7,#C96FBF)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 17, color: "#fff" }}>Fluxo de Estúdio</div>
-            </div>
+            <span style={{ color: "#fff", fontWeight: 900, fontSize: 16 }}>F</span>
           </div>
-          <div style={{ fontSize: 11, color: "#8B8BAA", marginTop: 1 }}>{nomeEstudio}</div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 17, color: "#fff" }}>Fluxo de Estúdio</div>
+            <div style={{ fontSize: 11, color: "#8B8BAA", marginTop: 1 }}>{nomeEstudio}</div>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {alertas.length > 0 && (
             <button onClick={() => setVisualizar("alertas")} style={{ background: "#E05C5C", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
               ⚠ {alertas.length} alerta{alertas.length > 1 ? "s" : ""}
@@ -219,7 +234,7 @@ export default function GerenciadorEstudio() {
       {/* BARRA DE ESTATÍSTICAS */}
       <div style={{ display: "flex", gap: 10, padding: "16px 28px", overflowX: "auto" }}>
         {FLUXO_DE_STATUS.map((s) => (
-          <div key={s.chave} onClick={() => setFiltroStatus(filtroStatus === s.chave ? "todos" : s.chave)} style={{ background: filtroStatus === s.chave ? s.cor : "#fff", color: filtroStatus === s.chave ? "#fff" : "#1A1A2E", border: `2px solid ${s.cor}`, borderRadius: 10, padding: "8px 14px", cursor: "pointer", minWidth: 90, textAlign: "center" }}>
+          <div key={s.chave} onClick={() => setFiltroStatus(filtroStatus === s.chave ? "todos" : s.chave)} style={{ background: filtroStatus === s.chave ? s.cor : "#fff", color: filtroStatus === s.chave ? "#fff" : "#1A1A2E", border: `2px solid ${s.cor}`, borderRadius: 10, padding: "8px 14px", cursor: "pointer", minWidth: 80, textAlign: "center", flexShrink: 0 }}>
             <div style={{ fontSize: 20, fontWeight: 800 }}>{clientes.filter((c) => c.status === s.chave).length}</div>
             <div style={{ fontSize: 10, fontWeight: 500, marginTop: 2, opacity: 0.85, lineHeight: 1.2 }}>{s.rotulo}</div>
           </div>
@@ -229,7 +244,7 @@ export default function GerenciadorEstudio() {
       {/* BARRA DE FERRAMENTAS */}
       <div style={{ padding: "0 28px 14px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <input value={procurar} onChange={(e) => setProcurar(e.target.value)} placeholder="Buscar cliente..." style={{ ...estiloEntrada, width: 200 }} />
-        <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={{ ...estiloEntrada, width: 160 }}>
+        <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={{ ...estiloEntrada, width: 180 }}>
           <option value="todos">Todos responsáveis</option>
           {membros.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
@@ -242,39 +257,30 @@ export default function GerenciadorEstudio() {
         </div>
       </div>
 
-      {/* VISUALIZAÇÃO DE ALERTAS */}
+      {/* ALERTAS */}
       {visualizar === "alertas" && (
         <div style={{ padding: "0 28px 28px" }}>
           <div style={{ background: "#FDF0F0", border: "2px solid #E05C5C", borderRadius: 14, padding: 20, marginBottom: 16 }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: "#E05C5C", marginBottom: 12 }}>⚠ Fotos editadas aguardando envio</div>
             {alertas.length === 0 && <div style={{ color: "#999", fontSize: 13 }}>Nenhum atraso no momento.</div>}
-            {alertas.map((c) => {
-              const diasEd = diasDiferenca(c.editadoEm);
-              return (
-                <div key={c.id} style={{ background: "#fff", borderRadius: 10, padding: 14, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{c.nome}</div>
-                    <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>Editado em {formatarData(c.editadoEm)}. Responsável: {c.responsavel || "–"}</div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <span style={{ background: "#E05C5C", color: "#fff", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700 }}>
-                      {diasEd}d
-                    </span>
-                    <button onClick={() => avancarStatus(c.id)} style={{ background: "#3DAE7B", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>
-                      Marcar Enviado
-                    </button>
-                  </div>
+            {alertas.map((c) => (
+              <div key={c.id} style={{ background: "#fff", borderRadius: 10, padding: 14, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{c.nome}</div>
+                  <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>Editado em {formatarData(c.editadoEm)}. Responsável: {c.responsavel || "–"}</div>
                 </div>
-              );
-            })}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <span style={{ background: "#E05C5C", color: "#fff", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700 }}>{diasDiferenca(c.editadoEm)}d</span>
+                  <button onClick={() => avancarStatus(c)} style={{ background: "#3DAE7B", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>Marcar Enviado</button>
+                </div>
+              </div>
+            ))}
           </div>
-          <button onClick={() => setVisualizar("kanban")} style={{ background: "#1A1A2E", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", cursor: "pointer" }}>
-            ← Voltar ao Kanban
-          </button>
+          <button onClick={() => setVisualizar("kanban")} style={{ background: "#1A1A2E", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", cursor: "pointer" }}>← Voltar ao Kanban</button>
         </div>
       )}
 
-      {/* VISUALIZAÇÃO KANBAN */}
+      {/* KANBAN */}
       {visualizar === "kanban" && (
         <div style={{ padding: "0 28px 28px", display: "flex", gap: 12, overflowX: "auto", alignItems: "flex-start" }}>
           {FLUXO_DE_STATUS.map((s) => {
@@ -286,11 +292,9 @@ export default function GerenciadorEstudio() {
                     <span style={{ color: "#fff", fontWeight: 700, fontSize: 12 }}>{s.icone} {s.rotulo}</span>
                     <span style={{ background: "rgba(255,255,255,0.25)", color: "#fff", borderRadius: 20, padding: "1px 8px", fontSize: 12 }}>{cols.length}</span>
                   </div>
-                  <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 8, minHeight: 60 }}>
+                  <div style={{ padding: 8, minHeight: 60 }}>
                     {cols.length === 0 && <div style={{ color: "#bbb", fontSize: 12, textAlign: "center", padding: "8px 0" }}>Vazio</div>}
-                    {cols.map((c) => (
-                      <CartaoCliente key={c.id} cliente={c} statusInfo={s} prazo={prazoEnvio} onEdit={abrirEditar} onAdvance={avancarStatus} />
-                    ))}
+                    {cols.map((c) => <CartaoCliente key={c.id} cliente={c} statusInfo={s} prazo={prazoEnvio} onEdit={abrirEditar} onAdvance={avancarStatus} />)}
                   </div>
                 </div>
               </div>
@@ -299,14 +303,14 @@ export default function GerenciadorEstudio() {
         </div>
       )}
 
-      {/* VISUALIZAÇÃO EM LISTA */}
+      {/* LISTA */}
       {visualizar === "lista" && (
         <div style={{ padding: "0 28px 28px" }}>
           <div style={{ background: "#fff", borderRadius: 14, border: "2px solid #E8E7EF", overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: "#F7F6F9" }}>
-                  {["Cliente", "Telefone", "Status", "Responsável", "Ensaio", "Editado em", "Enviado em", "Dias editado", "Ações"].map((h) => (
+                  {["Cliente", "Telefone", "Status", "Responsável", "Ensaio", "Editado em", "Dias editado", "Ações"].map((h) => (
                     <th key={h} style={{ padding: "11px 14px", textAlign: "left", fontWeight: 700, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
@@ -320,21 +324,16 @@ export default function GerenciadorEstudio() {
                     <tr key={c.id} style={{ background: atrasado ? "#FFF5F5" : eu % 2 === 0 ? "#fff" : "#FAFAFA", borderBottom: "1px solid #F0EFF5" }}>
                       <td style={{ padding: "10px 14px", fontWeight: 600 }}>{c.nome}</td>
                       <td style={{ padding: "10px 14px", color: "#666" }}>{c.telefone}</td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <span style={{ background: s.bg, color: s.cor, border: `1.5px solid ${s.cor}44`, borderRadius: 6, padding: "3px 8px" }}>{s.icone} {s.rotulo}</span>
-                      </td>
+                      <td style={{ padding: "10px 14px" }}><span style={{ background: s.bg, color: s.cor, border: `1.5px solid ${s.cor}44`, borderRadius: 6, padding: "3px 8px" }}>{s.icone} {s.rotulo}</span></td>
                       <td style={{ padding: "10px 14px", color: "#555" }}>{c.responsavel || "–"}</td>
                       <td style={{ padding: "10px 14px", color: "#555" }}>{formatarData(c.Data)}</td>
                       <td style={{ padding: "10px 14px", color: "#555" }}>{formatarData(c.editadoEm)}</td>
-                      <td style={{ padding: "10px 14px", color: "#555" }}>{formatarData(c.enviadoEm)}</td>
-                      <td style={{ padding: "10px 14px" }}>
-                        {atrasado ? <span style={{ color: "#E05C5C", fontWeight: 700 }}>⚠ {diasEd}d</span> : diasEd !== null ? <span>{diasEd}d</span> : "–"}
-                      </td>
+                      <td style={{ padding: "10px 14px" }}>{atrasado ? <span style={{ color: "#E05C5C", fontWeight: 700 }}>⚠ {diasEd}d</span> : diasEd !== null ? <span>{diasEd}d</span> : "–"}</td>
                       <td style={{ padding: "10px 14px" }}>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => abrirEditar(c)} style={{ background: "#EEF0FD", color: "#6B7FD7", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>Editar</button>
                           {FLUXO_DE_STATUS[FLUXO_DE_STATUS.findIndex((x) => x.chave === c.status) + 1] && (
-                            <button onClick={() => avancarStatus(c.id)} style={{ background: "#EBF8F3", color: "#3DAE7B", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>→</button>
+                            <button onClick={() => avancarStatus(c)} style={{ background: "#EBF8F3", color: "#3DAE7B", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontSize: 12 }}>→</button>
                           )}
                         </div>
                       </td>
@@ -355,10 +354,10 @@ export default function GerenciadorEstudio() {
             {[["Nome completo", "nome"], ["Telefone", "telefone"]].map(([rotulo, chave]) => (
               <div key={chave} style={{ marginBottom: 14 }}>
                 <label style={estiloEtiqueta}>{rotulo}</label>
-                <input value={forma[chave]} onChange={(e) => setForma((f) => ({ ...f, [chave]: e.target.value }))} style={estiloEntrada} />
+                <input value={forma[chave] || ""} onChange={(e) => setForma((f) => ({ ...f, [chave]: e.target.value }))} style={estiloEntrada} />
               </div>
             ))}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <label style={estiloEtiqueta}>Status</label>
                 <select value={forma.status} onChange={(e) => setForma((f) => ({ ...f, status: e.target.value }))} style={estiloEntrada}>
@@ -367,13 +366,13 @@ export default function GerenciadorEstudio() {
               </div>
               <div>
                 <label style={estiloEtiqueta}>Responsável</label>
-                <select value={forma.responsavel} onChange={(e) => setForma((f) => ({ ...f, responsavel: e.target.value }))} style={estiloEntrada}>
+                <select value={forma.responsavel || ""} onChange={(e) => setForma((f) => ({ ...f, responsavel: e.target.value }))} style={estiloEntrada}>
                   <option value="">–</option>
                   {membros.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
               <div>
                 <label style={estiloEtiqueta}>Data do Ensaio</label>
                 <input type="date" value={forma.Data || ""} onChange={(e) => setForma((f) => ({ ...f, Data: e.target.value }))} style={estiloEntrada} />
@@ -386,22 +385,16 @@ export default function GerenciadorEstudio() {
                 </select>
               </div>
             </div>
-            <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 12 }}>
               <label style={estiloEtiqueta}>Observações</label>
-              <textarea value={forma.notas} onChange={(e) => setForma((f) => ({ ...f, notas: e.target.value }))} rows={3} style={{ ...estiloEntrada, resize: "vertical" }} />
+              <textarea value={forma.notas || ""} onChange={(e) => setForma((f) => ({ ...f, notas: e.target.value }))} rows={3} style={{ ...estiloEntrada, resize: "vertical" }} />
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
               {clienteEdicao && (
-                <button onClick={() => excluirCliente(clienteEdicao.id)} style={{ background: "#FDF0F0", color: "#E05C5C", border: "2px solid #f5c6c6", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>
-                  Remover
-                </button>
+                <button onClick={() => excluirCliente(clienteEdicao.id)} style={{ background: "#FDF0F0", color: "#E05C5C", border: "2px solid #f5c6c6", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>Remover</button>
               )}
-              <button onClick={() => setMostrarModal(false)} style={{ background: "#F7F6F9", color: "#666", border: "2px solid #E8E7EF", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>
-                Cancelar
-              </button>
-              <button onClick={salvarCliente} style={{ background: "linear-gradient(135deg,#6B7FD7,#C96FBF)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontWeight: 700 }}>
-                Salvar
-              </button>
+              <button onClick={() => setMostrarModal(false)} style={{ background: "#F7F6F9", color: "#666", border: "2px solid #E8E7EF", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>Cancelar</button>
+              <button onClick={salvarCliente} style={{ background: "linear-gradient(135deg,#6B7FD7,#C96FBF)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontWeight: 700 }}>Salvar</button>
             </div>
           </div>
         </div>
@@ -418,22 +411,17 @@ export default function GerenciadorEstudio() {
                 <div style={{ fontSize: 12, color: "#999" }}>Personalize o sistema do seu estúdio</div>
               </div>
             </div>
-
             <div style={{ background: "#F7F6F9", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#6B7FD7", marginBottom: 12, textTransform: "uppercase" }}>Nome do Estúdio</div>
               <label style={estiloEtiqueta}>Nome do Estúdio</label>
               <input value={formConfig.nomeEstudio} onChange={(e) => setFormConfig((f) => ({ ...f, nomeEstudio: e.target.value }))} style={estiloEntrada} />
             </div>
-
             <div style={{ background: "#FDF5E8", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#E09B3D", marginBottom: 12, textTransform: "uppercase" }}>Prazo de envio</div>
               <label style={estiloEtiqueta}>Prazo máximo para enviar fotos após edição</label>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <input type="number" min="1" max="30" value={formConfig.prazoEnvio} onChange={(e) => setFormConfig((f) => ({ ...f, prazoEnvio: e.target.value }))} style={{ ...estiloEntrada, width: 80, fontSize: 20, fontWeight: 700, textAlign: "center" }} />
                 <div style={{ fontSize: 14, color: "#666" }}>dia{formConfig.prazoEnvio > 1 ? "s" : ""} após edição</div>
               </div>
             </div>
-
             <div style={{ background: "#EEF0FD", borderRadius: 12, padding: 16, marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#6B7FD7", marginBottom: 12, textTransform: "uppercase" }}>Integrantes da equipe</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
@@ -441,14 +429,10 @@ export default function GerenciadorEstudio() {
                 {formConfig.membros.map((m) => (
                   <div key={m} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 8, padding: "8px 12px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 28, height: 28, background: "linear-gradient(135deg,#6B7FD7,#C96FBF)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 12 }}>
-                        {m[0].toUpperCase()}
-                      </div>
+                      <div style={{ width: 28, height: 28, background: "linear-gradient(135deg,#6B7FD7,#C96FBF)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 12 }}>{m[0].toUpperCase()}</div>
                       <span style={{ fontWeight: 600, fontSize: 14 }}>{m}</span>
                     </div>
-                    <button onClick={() => removerMembro(m)} style={{ background: "#FDF0F0", color: "#E05C5C", border: "1.5px solid #f5c6c6", borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontSize: 12 }}>
-                      Remover
-                    </button>
+                    <button onClick={() => removerMembro(m)} style={{ background: "#FDF0F0", color: "#E05C5C", border: "1.5px solid #f5c6c6", borderRadius: 6, padding: "3px 10px", cursor: "pointer", fontSize: 12 }}>Remover</button>
                   </div>
                 ))}
               </div>
@@ -458,14 +442,9 @@ export default function GerenciadorEstudio() {
                 <button onClick={adicionarMembro} style={{ background: "linear-gradient(135deg,#6B7FD7,#C96FBF)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontSize: 16 }}>+</button>
               </div>
             </div>
-
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button onClick={() => setMostrarConfiguracoes(false)} style={{ background: "#F7F6F9", color: "#666", border: "2px solid #E8E7EF", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>
-                Cancelar
-              </button>
-              <button onClick={salvarConfiguracoes} style={{ background: "linear-gradient(135deg,#6B7FD7,#C96FBF)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontWeight: 700 }}>
-                ✓ Salvar Configurações
-              </button>
+              <button onClick={() => setMostrarConfiguracoes(false)} style={{ background: "#F7F6F9", color: "#666", border: "2px solid #E8E7EF", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}>Cancelar</button>
+              <button onClick={salvarConfiguracoes} style={{ background: "linear-gradient(135deg,#6B7FD7,#C96FBF)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontWeight: 700 }}>✓ Salvar</button>
             </div>
           </div>
         </div>
